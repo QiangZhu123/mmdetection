@@ -29,10 +29,10 @@ class NonLocal2D(nn.Module):
                  norm_cfg=None,
                  mode='embedded_gaussian'):
         super(NonLocal2D, self).__init__()
-        self.in_channels = in_channels
-        self.reduction = reduction
-        self.use_scale = use_scale
-        self.inter_channels = in_channels // reduction
+        self.in_channels = in_channels #输入通道个数
+        self.reduction = reduction     #压缩系数
+        self.use_scale = use_scale        #缩放
+        self.inter_channels = in_channels // reduction         #中间层就是对输入的压缩
         self.mode = mode
         assert mode in ['embedded_gaussian', 'dot_product']
 
