@@ -68,7 +68,7 @@ class FCOSHead(nn.Module):
 
         self._init_layers()
 
-    def _init_layers(self):
+    def _init_layers(self):#初始化预测头参数层
         self.cls_convs = nn.ModuleList()
         self.reg_convs = nn.ModuleList()
         for i in range(self.stacked_convs):
@@ -94,13 +94,13 @@ class FCOSHead(nn.Module):
                     norm_cfg=self.norm_cfg,
                     bias=self.norm_cfg is None))
         self.fcos_cls = nn.Conv2d(
-            self.feat_channels, self.cls_out_channels, 3, padding=1)
-        self.fcos_reg = nn.Conv2d(self.feat_channels, 4, 3, padding=1)
-        self.fcos_centerness = nn.Conv2d(self.feat_channels, 1, 3, padding=1)
+            self.feat_channels, self.cls_out_channels, 3, padding=1)#预测头
+        self.fcos_reg = nn.Conv2d(self.feat_channels, 4, 3, padding=1)#预测头
+        self.fcos_centerness = nn.Conv2d(self.feat_channels, 1, 3, padding=1)#预测头
 
         self.scales = nn.ModuleList([Scale(1.0) for _ in self.strides])
 
-    def init_weights(self):
+    def init_weights(self):#初始化权重
         for m in self.cls_convs:
             normal_init(m.conv, std=0.01)
         for m in self.reg_convs:
@@ -110,19 +110,19 @@ class FCOSHead(nn.Module):
         normal_init(self.fcos_reg, std=0.01)
         normal_init(self.fcos_centerness, std=0.01)
 
-    def forward(self, feats):
+    def forward(self, feats):#所有的图片进行前向传播
         return multi_apply(self.forward_single, feats, self.scales)
 
     def forward_single(self, x, scale):
         cls_feat = x
         reg_feat = x
 
-        for cls_layer in self.cls_convs:
+        for cls_layer in self.cls_convs:#先执行分类层
             cls_feat = cls_layer(cls_feat)
         cls_score = self.fcos_cls(cls_feat)
         centerness = self.fcos_centerness(cls_feat)
 
-        for reg_layer in self.reg_convs:
+        for reg_layer in self.reg_convs:#回归层
             reg_feat = reg_layer(reg_feat)
         # scale the bbox_pred of different level
         # float to avoid overflow when enabling FP16
@@ -139,19 +139,19 @@ class FCOSHead(nn.Module):
              img_metas,
              cfg,
              gt_bboxes_ignore=None):
-        assert len(cls_scores) == len(bbox_preds) == len(centernesses)
-        featmap_sizes = [featmap.size()[-2:] for featmap in cls_scores]
+        assert len(cls_scores) == len(bbox_preds) == len(centernesses)#共三类结果张量
+        featmap_sizes = [featmap.size()[-2:] for featmap in cls_scores]#三个张量宽高都是一样的，和特征图一样大
         all_level_points = self.get_points(featmap_sizes, bbox_preds[0].dtype,
-                                           bbox_preds[0].device)
+                                           bbox_preds[0].device)#这个是生成特征图上所有的坐标点，列表形式，每层一个列表
         labels, bbox_targets = self.fcos_target(all_level_points, gt_bboxes,
-                                                gt_labels)
+                                                gt_labels)#因为这里不再是BOX，而是点，
 
-        num_imgs = cls_scores[0].size(0)
+        num_imgs = cls_scores[0].size(0)#有多少张图片
         # flatten cls_scores, bbox_preds and centerness
         flatten_cls_scores = [
             cls_score.permute(0, 2, 3, 1).reshape(-1, self.cls_out_channels)
             for cls_score in cls_scores
-        ]
+        ]#将分类结果进行形变，才能进行损失计算
         flatten_bbox_preds = [
             bbox_pred.permute(0, 2, 3, 1).reshape(-1, 4)
             for bbox_pred in bbox_preds
@@ -160,7 +160,7 @@ class FCOSHead(nn.Module):
             centerness.permute(0, 2, 3, 1).reshape(-1)
             for centerness in centernesses
         ]
-        flatten_cls_scores = torch.cat(flatten_cls_scores)
+        flatten_cls_scores = torch.cat(flatten_cls_scores)#将所有的结果全部组合在一起
         flatten_bbox_preds = torch.cat(flatten_bbox_preds)
         flatten_centerness = torch.cat(flatten_centerness)
         flatten_labels = torch.cat(labels)
@@ -297,13 +297,13 @@ class FCOSHead(nn.Module):
             tuple: points of each image.
         """
         mlvl_points = []
-        for i in range(len(featmap_sizes)):
+        for i in range(len(featmap_sizes)):#对所有特征层
             mlvl_points.append(
                 self.get_points_single(featmap_sizes[i], self.strides[i],
-                                       dtype, device))
+                                       dtype, device))#生成一层点
         return mlvl_points
 
-    def get_points_single(self, featmap_size, stride, dtype, device):
+    def get_points_single(self, featmap_size, stride, dtype, device):#生成一个特征图上的点
         h, w = featmap_size
         x_range = torch.arange(
             0, w * stride, stride, dtype=dtype, device=device)
@@ -311,12 +311,12 @@ class FCOSHead(nn.Module):
             0, h * stride, stride, dtype=dtype, device=device)
         y, x = torch.meshgrid(y_range, x_range)
         points = torch.stack(
-            (x.reshape(-1), y.reshape(-1)), dim=-1) + stride // 2
+            (x.reshape(-1), y.reshape(-1)), dim=-1) + stride // 2 #生成一个特征图上所有点的坐标，
         return points
 
     def fcos_target(self, points, gt_bboxes_list, gt_labels_list):
-        assert len(points) == len(self.regress_ranges)
-        num_levels = len(points)
+        assert len(points) == len(self.regress_ranges)#特征层数
+        num_levels = len(points)#几层
         # expand regress ranges to align with points
         expanded_regress_ranges = [
             points[i].new_tensor(self.regress_ranges[i])[None].expand_as(
@@ -352,7 +352,7 @@ class FCOSHead(nn.Module):
                     [bbox_targets[i] for bbox_targets in bbox_targets_list]))
         return concat_lvl_labels, concat_lvl_bbox_targets
 
-    def fcos_target_single(self, gt_bboxes, gt_labels, points, regress_ranges):
+    def fcos_target_single(self, gt_bboxes, gt_labels, points, regress_ranges):#一层特征图编码
         num_points = points.size(0)
         num_gts = gt_labels.size(0)
         if num_gts == 0:
@@ -360,7 +360,7 @@ class FCOSHead(nn.Module):
                    gt_bboxes.new_zeros((num_points, 4))
 
         areas = (gt_bboxes[:, 2] - gt_bboxes[:, 0] + 1) * (
-            gt_bboxes[:, 3] - gt_bboxes[:, 1] + 1)
+            gt_bboxes[:, 3] - gt_bboxes[:, 1] + 1)#计算BBOX面积
         # TODO: figure out why these two are different
         # areas = areas[None].expand(num_points, num_gts)
         areas = areas[None].repeat(num_points, 1)
@@ -375,12 +375,12 @@ class FCOSHead(nn.Module):
         right = gt_bboxes[..., 2] - xs
         top = ys - gt_bboxes[..., 1]
         bottom = gt_bboxes[..., 3] - ys
-        bbox_targets = torch.stack((left, top, right, bottom), -1)
+        bbox_targets = torch.stack((left, top, right, bottom), -1)#转化GT为左上右下
 
-        # condition1: inside a gt bbox
-        inside_gt_bbox_mask = bbox_targets.min(-1)[0] > 0
+        # condition1: inside a gt bbox第一个条件，要求所有值都是大于0的，
+        inside_gt_bbox_mask = bbox_targets.min(-1)[0] > 0  
 
-        # condition2: limit the regression range for each location
+        # condition2: limit the regression range for each location第二个条件，根据给定的范围来进行分配
         max_regress_distance = bbox_targets.max(-1)[0]
         inside_regress_range = (
             max_regress_distance >= regress_ranges[..., 0]) & (
@@ -404,5 +404,5 @@ class FCOSHead(nn.Module):
         top_bottom = pos_bbox_targets[:, [1, 3]]
         centerness_targets = (
             left_right.min(dim=-1)[0] / left_right.max(dim=-1)[0]) * (
-                top_bottom.min(dim=-1)[0] / top_bottom.max(dim=-1)[0])
+                top_bottom.min(dim=-1)[0] / top_bottom.max(dim=-1)[0])#中心性计算，下面再开根号
         return torch.sqrt(centerness_targets)
